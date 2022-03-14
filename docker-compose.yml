@@ -1,0 +1,115 @@
+version: '3'
+
+services:
+  traefik:
+    image: "traefik:v2.5"
+    container_name: "traefik"
+    command:
+      - "--log.level=DEBUG"
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.websecure.address=:443"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.web.http.redirections.entryPoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entryPoint.scheme=https"
+      - "--entrypoints.web.http.redirections.entrypoint.permanent=true"
+      - "--certificatesresolvers.magento.acme.tlschallenge=true"
+      #- "--certificatesresolvers.myresolver.acme.caserver=https://acme-staging-v02.api.letsencrypt.org/directory"
+      - "--certificatesresolvers.magento.acme.email=mail@moritzmair.info"
+      - "--certificatesresolvers.magento.acme.storage=/letsencrypt/acme.json"
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:8080"
+    restart: unless-stopped
+    volumes:
+      - "./letsencrypt:/letsencrypt"
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+    networks:
+      - magento
+  nginx:
+    image: nginx:alpine
+    restart: unless-stopped
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.magento.rule=Host(`${MAGENTO_URL}`)"
+      - "traefik.http.routers.magento.entrypoints=websecure"
+      - "traefik.http.routers.magento.tls.certresolver=magento"
+      - "traefik.docker.network=magento"
+      - "traefik.http.middlewares.basic-auth.basicauth.users=speck:$$apr1$$RR7E\
+        HA3r$$.8Xseh7zrH1q9g5gIUg17."
+      - "traefik.http.routers.magento.middlewares=basic-auth@docker"
+    volumes:
+      - magento:/var/www
+      - ./nginx:/etc/nginx/conf.d/
+    networks:
+      - magento
+  php:
+    build: php
+    volumes:
+      - magento:/var/www
+      - ~/.composer:/root/.composer
+    networks:
+      - magento
+  elasticsearch:
+    image: markoshust/magento-elasticsearch:7.9.3-1
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    environment:
+      - "discovery.type=single-node"
+      ## Set custom heap size to avoid memory errors
+      - "ES_JAVA_OPTS=-Xms1g -Xmx1g"
+      ## Avoid test failures due to small disks
+      ## More info at https://github.com/markshust/docker-magento/issues/488
+      - "cluster.routing.allocation.disk.threshold_enabled=false"
+      - "index.blocks.read_only_allow_delete"
+    networks:
+      - magento
+
+  db:
+    image: mariadb:10.4
+    command: --max_allowed_packet=64M
+    environment:
+      MYSQL_DATABASE: ${DB_DATABASE}
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+      MYSQL_USER: ${DB_USERNAME}
+    volumes:
+      - dbdata:/var/lib/mysql
+    networks:
+      - magento
+  grunt:
+    build: php
+    volumes:
+      - magento:/var/www
+    entrypoint: [ "grunt", "watch" ]
+    networks:
+      - magento
+  phpmyadmin:
+    image: phpmyadmin
+    restart: always
+    environment:
+      UPLOAD_LIMIT: 300M
+    ports:
+      - 8001:80
+    networks:
+      - magento
+volumes:
+  magento:
+    driver: local
+    driver_opts:
+      type: none
+      device: ${MAGENTO_SRC_PATH}
+      o: bind
+  dbdata:
+    driver: local
+    driver_opts:
+      type: none
+      device: ${MAGENTO_DB_PATH}
+      o: bind
+  letsencrypt:
+    driver: local
+networks:
+  magento: null
