@@ -37,8 +37,7 @@ services:
       - "traefik.http.routers.magento.entrypoints=websecure"
       - "traefik.http.routers.magento.tls.certresolver=magento"
       - "traefik.docker.network=magento"
-      - "traefik.http.middlewares.basic-auth.basicauth.users=speck:$$apr1$$RR7E\
-        HA3r$$.8Xseh7zrH1q9g5gIUg17."
+      - "traefik.http.middlewares.basic-auth.basicauth.users=${AUTH_USER}:${AUTH_PASSWORD}"
       - "traefik.http.routers.magento.middlewares=basic-auth@docker"
     volumes:
       - magento:/var/www
